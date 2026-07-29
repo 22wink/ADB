@@ -1,0 +1,9 @@
+﻿/* 全局仅保留视口锁定；组件样式由 MUI Theme 负责 */
+html,
+body,
+#root {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+}

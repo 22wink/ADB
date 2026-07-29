@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/devicesidebar.tsx","./src/filemanager.tsx","./src/notificationcenter.tsx","./src/proptable.tsx","./src/resizablepanel.tsx","./src/api.ts","./src/deviceprops.ts","./src/main.tsx","./src/theme.ts","./src/vite-env.d.ts","./src/control/phoneremote.tsx","./src/control/scrcpyplayer.tsx"],"version":"5.9.3"}

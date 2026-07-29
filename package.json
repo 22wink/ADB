@@ -1,0 +1,26 @@
+{
+  "name": "adb-studio",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ADB 可视化操作工具（本机安全代理）",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @adb-studio/server --filter @adb-studio/web dev",
+    "dev:server": "pnpm --filter @adb-studio/server dev",
+    "dev:server:real": "pnpm --filter @adb-studio/server dev:real",
+    "dev:web": "pnpm --filter @adb-studio/web dev",
+    "build": "node scripts/build.mjs",
+    "release": "node scripts/pack.mjs",
+    "start": "node apps/server/dist/index.js",
+    "start:release": "node release/ADB-Studio/server.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.24.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}
