@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -884,18 +884,52 @@ function assertForwardEndpoint(value: string, kind: string): string {
   throw new AdbError(`非法 forward ${kind}`);
 }
 
+/** 从 PATH 查找 adb（Windows / macOS / Linux） */
+function findAdbOnPath(): string | undefined {
+  const cmd = process.platform === "win32" ? "where" : "which";
+  const r = spawnSync(cmd, ["adb"], {
+    encoding: "utf8",
+    shell: false,
+    windowsHide: true,
+  });
+  if (r.status !== 0 || !r.stdout?.trim()) return undefined;
+  const first = r.stdout
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .find((s) => s.length > 0);
+  return first && fs.existsSync(first) ? first : undefined;
+}
+
+/** 仓库内多平台目录：platform-tools/{windows|darwin|linux}/ */
+function platformToolsOsDir(): string {
+  if (process.platform === "win32") return "windows";
+  if (process.platform === "darwin") return "darwin";
+  return "linux";
+}
+
 export function resolveAdbPath(configured?: string, cwd = process.cwd()): string {
+  const native = process.platform === "win32" ? "adb.exe" : "adb";
+  const alt = process.platform === "win32" ? "adb" : "adb.exe";
+  const osDir = platformToolsOsDir();
   const candidates = [
     configured,
-    path.join(cwd, "platform-tools", "adb.exe"),
-    path.join(cwd, "platform-tools", "adb"),
-    path.join(cwd, "..", "..", "platform-tools", "adb.exe"),
-    path.join(cwd, "..", "..", "platform-tools", "adb"),
+    path.join(cwd, "platform-tools", osDir, native),
+    path.join(cwd, "platform-tools", native),
+    path.join(cwd, "platform-tools", alt),
+    path.join(cwd, "..", "..", "platform-tools", osDir, native),
+    path.join(cwd, "..", "..", "platform-tools", native),
+    path.join(cwd, "..", "..", "platform-tools", alt),
   ].filter(Boolean) as string[];
 
   for (const c of candidates) {
     const abs = path.resolve(c);
     if (fs.existsSync(abs)) return abs;
   }
-  throw new AdbError("未找到 adb，请配置 ADB_PATH 或放置 platform-tools");
+
+  const onPath = findAdbOnPath();
+  if (onPath) return onPath;
+
+  throw new AdbError(
+    "未找到 adb，请配置 ADB_PATH、运行 pnpm fetch:adb，或安装 platform-tools",
+  );
 }

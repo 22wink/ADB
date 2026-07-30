@@ -623,8 +623,15 @@ const server = app.listen(PORT, HOST, () => {
   if (MOCK) console.log("Mock 模式：实时投屏为模拟画面");
   console.log("按 Ctrl+C 或关闭窗口以停止");
   if (process.env.OPEN_BROWSER !== "0") {
-    import("node:child_process").then(({ exec }) => {
-      exec(`start "" "${url}"`);
+    import("node:child_process").then(({ execFile }) => {
+      // url 仅由本机 HOST/PORT 拼出，勿改用 shell 拼接用户输入
+      if (process.platform === "darwin") {
+        execFile("open", [url]);
+      } else if (process.platform === "win32") {
+        execFile("cmd", ["/c", "start", "", url]);
+      } else {
+        execFile("xdg-open", [url]);
+      }
     });
   }
 });
@@ -649,6 +656,10 @@ function shutdown(reason: string) {
   setTimeout(() => process.exit(0), 1500).unref();
 }
 
-for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK"] as const) {
+const stopSignals =
+  process.platform === "win32"
+    ? (["SIGINT", "SIGTERM", "SIGBREAK"] as const)
+    : (["SIGINT", "SIGTERM"] as const);
+for (const sig of stopSignals) {
   process.on(sig, () => shutdown(sig));
 }
