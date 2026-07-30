@@ -29,4 +29,4 @@ rmSync(publicDir, { recursive: true, force: true });
 mkdirSync(publicDir, { recursive: true });
 cpSync(webDist, publicDir, { recursive: true });
 console.log("已拷贝前端 → apps/server/public");
-console.log("打包完成。运行: pnpm start  或  start.bat");
+console.log("打包完成。运行: pnpm start  | Windows: start.bat  | macOS: ./start.sh");
