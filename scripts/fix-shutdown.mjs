@@ -50,28 +50,53 @@ title ADB Studio
 
 set "LOG=%~dp0start.log"
 echo ===== %date% %time% =====> "%LOG%"
+echo cwd=%cd%>> "%LOG%"
 
 set "NODE_EXE=%~dp0runtime\\node.exe"
+set "SERVER_JS=%~dp0server.mjs"
 if not exist "%NODE_EXE%" (
   echo [ERROR] Missing runtime\\node.exe
+  echo missing runtime>> "%LOG%"
   goto hold
 )
-if not exist "%~dp0server.mjs" (
+if not exist "%SERVER_JS%" (
   echo [ERROR] Missing server.mjs
   goto hold
 )
-if not exist "%~dp0run.ps1" (
-  echo [ERROR] Missing run.ps1
+if not exist "%~dp0platform-tools\\adb.exe" (
+  echo [ERROR] Missing platform-tools\\adb.exe
   goto hold
 )
 
 echo Using bundled Node:
 echo %NODE_EXE%
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run.ps1"
+"%NODE_EXE%" -v >> "%LOG%" 2>&1
+if errorlevel 1 (
+  echo [ERROR] Bundled Node failed to run
+  type "%LOG%"
+  goto hold
+)
+
+echo Stopping leftover process on port 3789 (if any)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$port=3789; if (Test-Path '%~dp0.env') { $m=Select-String -Path '%~dp0.env' -Pattern '^\\s*PORT\\s*=\\s*(\\d+)' | Select-Object -First 1; if ($m) { $port=[int]$m.Matches[0].Groups[1].Value } }; Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('Killing PID ' + $_.OwningProcess); Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host ('Ready. PORT=' + $port)"
+
+echo Starting ADB Studio...
+echo Open: http://127.0.0.1:3789
+echo Press Ctrl+C or close this window to stop.
+echo.
+echo cmdline="%NODE_EXE%" "%SERVER_JS%">> "%LOG%"
+
+REM 直接用 cmd 启动，避免 PowerShell Start-Process 把绝对路径参数传丢
+"%NODE_EXE%" "%SERVER_JS%"
 set "ERR=%ERRORLEVEL%"
 echo.
 echo [EXIT] code %ERR%
-if not "%ERR%"=="0" echo Start failed. See start.log
+echo exit=%ERR%>> "%LOG%"
+if not "%ERR%"=="0" (
+  echo Start failed. See start.log
+  type "%LOG%"
+)
 
 :hold
 echo.
@@ -83,23 +108,48 @@ const stopBat = `@echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
 title ADB Studio Stop
-echo Stopping ADB Studio ...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 3789 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('Killing PID ' + $_.OwningProcess); Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host 'Done.'"
+
+echo Stopping ADB Studio on port 3789 ...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$port=3789; if (Test-Path '%~dp0.env') { $m=Select-String -Path '%~dp0.env' -Pattern '^\\s*PORT\\s*=\\s*(\\d+)' | Select-Object -First 1; if ($m) { $port=[int]$m.Matches[0].Groups[1].Value } }; Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('Killing PID ' + $_.OwningProcess); Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host 'Done.'"
+
 echo.
 pause
 endlocal
 `;
 
-const runPs1 = `$ErrorActionPreference = 'SilentlyContinue'
+const runPs1 = `$ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location -LiteralPath $root
 $node = Join-Path $root 'runtime\\node.exe'
-$server = Join-Path $root 'server.mjs'
+$serverArg = 'server.mjs'
+$server = Join-Path $root $serverArg
 $port = 3789
+$log = Join-Path $root 'start.log'
+
+$envFile = Join-Path $root '.env'
+if (Test-Path -LiteralPath $envFile) {
+  $m = Select-String -Path $envFile -Pattern '^\\s*PORT\\s*=\\s*(\\d+)' | Select-Object -First 1
+  if ($m) { $port = [int]$m.Matches[0].Groups[1].Value }
+}
 
 function Stop-ListenPort([int]$Port) {
   Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
-    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+    ForEach-Object {
+      Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
 }
+
+if (-not (Test-Path -LiteralPath $node)) {
+  Write-Host "[ERROR] Missing runtime\\node.exe"
+  exit 1
+}
+if (-not (Test-Path -LiteralPath $server)) {
+  Write-Host "[ERROR] Missing server.mjs"
+  exit 1
+}
+
+Add-Content -LiteralPath $log -Value ("cmdline=" + $node + " " + $serverArg + " cwd=" + $root)
 
 Write-Host "Stopping leftover process on port $port (if any)..."
 Stop-ListenPort $port
@@ -110,18 +160,17 @@ Write-Host "Open: http://127.0.0.1:$port"
 Write-Host "Press Ctrl+C or close this window to stop."
 Write-Host ""
 
-$p = Start-Process -FilePath $node -ArgumentList $server -WorkingDirectory $root -NoNewWindow -PassThru
+$exitCode = 0
 try {
-  Wait-Process -Id $p.Id
-  exit $p.ExitCode
+  & $node $serverArg
+  $exitCode = $LASTEXITCODE
+  if ($null -eq $exitCode) { $exitCode = 0 }
 } finally {
-  if ($null -ne $p -and -not $p.HasExited) {
-    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-  }
   Stop-ListenPort $port
   Write-Host ""
   Write-Host "Stopped."
 }
+exit $exitCode
 `;
 
 crlfAscii(join(out, "start.bat"), startBat);
