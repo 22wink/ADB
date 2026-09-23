@@ -167,6 +167,29 @@ app.get("/api/devices/history", (_req, res) => {
   res.json({ history: deviceStore.list() });
 });
 
+app.patch("/api/devices/history/:id", (req, res) => {
+  try {
+    const id = decodeURIComponent(req.params.id);
+    const body = z
+      .object({
+        note: z.string().max(200).optional(),
+        pinned: z.boolean().optional(),
+      })
+      .refine((v) => v.note !== undefined || v.pinned !== undefined, {
+        message: "需要 note 或 pinned",
+      })
+      .parse(req.body ?? {});
+    const device = deviceStore.patch(id, body);
+    if (!device) {
+      res.status(404).json({ error: "历史设备不存在" });
+      return;
+    }
+    res.json({ ok: true, device, history: deviceStore.list() });
+  } catch (e) {
+    sendErr(res, e);
+  }
+});
+
 app.delete("/api/devices/history/:id", (req, res) => {
   const id = decodeURIComponent(req.params.id);
   const ok = deviceStore.remove(id);

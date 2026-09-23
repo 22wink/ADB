@@ -33,6 +33,8 @@ export type SavedDevice = {
   transport?: "usb" | "wifi";
   lastSeenAt: string;
   lastConnectedAt: string;
+  note?: string;
+  pinned?: boolean;
 };
 
 export type LanHost = {
@@ -82,6 +84,15 @@ export const api = {
     request<{ ok: boolean }>(
       `/api/devices/history/${encodeURIComponent(id)}`,
       { method: "DELETE" },
+    ),
+  updateHistory: (id: string, patch: { note?: string; pinned?: boolean }) =>
+    request<{ ok: boolean; device: SavedDevice; history: SavedDevice[] }>(
+      `/api/devices/history/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      },
     ),
   lanSubnets: () => request<{ subnets: string[] }>("/api/lan/subnets"),
   lanDiscover: () =>

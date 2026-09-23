@@ -3,16 +3,20 @@ import {
   Box,
   Button,
   Divider,
+  IconButton,
   List,
   ListItemButton,
   ListItemText,
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
   CircularProgress,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import PushPinIcon from "@mui/icons-material/PushPin";
+import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import {
   api,
   type Device,
@@ -30,6 +34,180 @@ type Props = {
   run: (action: () => Promise<unknown>, okMsg: string) => Promise<void>;
   setHistory: (h: SavedDevice[]) => void;
 };
+
+function HistoryDeviceCard({
+  device,
+  busy,
+  onRefresh,
+  run,
+  setHistory,
+  setSerial,
+  setWifiAddr,
+}: {
+  device: SavedDevice;
+  busy: boolean;
+  onRefresh: () => Promise<void>;
+  run: (action: () => Promise<unknown>, okMsg: string) => Promise<void>;
+  setHistory: (h: SavedDevice[]) => void;
+  setSerial: (s: string) => void;
+  setWifiAddr: (s: string) => void;
+}) {
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(device.note ?? "");
+
+  useEffect(() => {
+    setNoteDraft(device.note ?? "");
+    setEditingNote(false);
+  }, [device.id, device.note]);
+
+  async function finishNoteEdit() {
+    const next = noteDraft.trim();
+    setEditingNote(false);
+    if (next === (device.note ?? "").trim()) {
+      setNoteDraft(device.note ?? "");
+      return;
+    }
+    await run(async () => {
+      const r = await api.updateHistory(device.id, { note: next });
+      setHistory(r.history);
+    }, "备注已保存");
+  }
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 1,
+        borderColor: device.pinned ? "warning.main" : undefined,
+        bgcolor: device.pinned ? "action.hover" : undefined,
+      }}
+    >
+      <Stack direction="row" alignItems="flex-start" spacing={0.5}>
+        <Box
+          onClick={() => {
+            if (device.address) setWifiAddr(device.address);
+            setSerial(device.serial);
+          }}
+          sx={{ cursor: "pointer", flex: 1, minWidth: 0 }}
+        >
+          <Typography variant="body2" fontWeight={600} noWrap>
+            {device.model || device.serial}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block">
+            {device.serial}
+            {device.address ? ` · ${device.address}` : ""}
+            {` · ${device.transport === "wifi" ? "Wi‑Fi" : "USB"}`}
+          </Typography>
+        </Box>
+        <Tooltip title={device.pinned ? "取消固定" : "固定"}>
+          <IconButton
+            size="small"
+            color={device.pinned ? "warning" : "default"}
+            disabled={busy}
+            aria-label={device.pinned ? "取消固定" : "固定"}
+            onClick={() =>
+              run(async () => {
+                const r = await api.updateHistory(device.id, {
+                  pinned: !device.pinned,
+                });
+                setHistory(r.history);
+              }, device.pinned ? "已取消固定" : "已固定")
+            }
+          >
+            {device.pinned ? (
+              <PushPinIcon fontSize="small" />
+            ) : (
+              <PushPinOutlinedIcon fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
+      </Stack>
+
+      {editingNote ? (
+        <TextField
+          size="small"
+          fullWidth
+          autoFocus
+          placeholder="输入备注…"
+          value={noteDraft}
+          disabled={busy}
+          onChange={(e) => setNoteDraft(e.target.value)}
+          onBlur={() => void finishNoteEdit()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setNoteDraft(device.note ?? "");
+              setEditingNote(false);
+            }
+          }}
+          inputProps={{ maxLength: 200 }}
+          sx={{ mt: 0.75, mb: 1 }}
+        />
+      ) : (
+        <Typography
+          variant="caption"
+          color={device.note ? "text.secondary" : "text.disabled"}
+          display="block"
+          title="双击编辑备注"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            if (busy) return;
+            setNoteDraft(device.note ?? "");
+            setEditingNote(true);
+          }}
+          sx={{
+            mt: 0.5,
+            mb: 1,
+            px: 0.25,
+            py: 0.25,
+            borderRadius: 0.5,
+            cursor: "text",
+            fontStyle: device.note ? "italic" : "normal",
+            userSelect: "none",
+            "&:hover": { bgcolor: "action.hover" },
+          }}
+        >
+          {device.note || "双击添加备注"}
+        </Typography>
+      )}
+
+      <Stack direction="row" spacing={1}>
+        {device.address ? (
+          <Button
+            variant="contained"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                await api.connect(device.address!);
+                await onRefresh();
+                setSerial(device.address!);
+              }, "已发起重连")
+            }
+          >
+            重连
+          </Button>
+        ) : null}
+        <Button
+          color="error"
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              await api.forgetDevice(device.id);
+              const r = await api.devices();
+              setHistory(r.history);
+            }, "已从历史移除")
+          }
+        >
+          忘记
+        </Button>
+      </Stack>
+    </Paper>
+  );
+}
 
 export default function DeviceSidebar({
   serial,
@@ -152,54 +330,16 @@ export default function DeviceSidebar({
         ) : (
           <Stack spacing={1} sx={{ mt: 0.5, mb: 1.5 }}>
             {historyOffline.map((h) => (
-              <Paper key={h.id} variant="outlined" sx={{ p: 1 }}>
-                <Box
-                  onClick={() => {
-                    if (h.address) setWifiAddr(h.address);
-                    setSerial(h.serial);
-                  }}
-                  sx={{ cursor: "pointer", mb: 0.75 }}
-                >
-                  <Typography variant="body2" fontWeight={600}>
-                    {h.model || h.serial}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {h.serial}
-                    {h.address ? ` · ${h.address}` : ""}
-                    {` · ${h.transport === "wifi" ? "Wi‑Fi" : "USB"}`}
-                  </Typography>
-                </Box>
-                <Stack direction="row" spacing={1}>
-                  {h.address ? (
-                    <Button
-                      variant="contained"
-                      disabled={busy}
-                      onClick={() =>
-                        run(async () => {
-                          await api.connect(h.address!);
-                          await onRefresh();
-                          setSerial(h.address!);
-                        }, "已发起重连")
-                      }
-                    >
-                      重连
-                    </Button>
-                  ) : null}
-                  <Button
-                    color="error"
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () => {
-                        await api.forgetDevice(h.id);
-                        const r = await api.devices();
-                        setHistory(r.history);
-                      }, "已从历史移除")
-                    }
-                  >
-                    忘记
-                  </Button>
-                </Stack>
-              </Paper>
+              <HistoryDeviceCard
+                key={h.id}
+                device={h}
+                busy={busy}
+                onRefresh={onRefresh}
+                run={run}
+                setHistory={setHistory}
+                setSerial={setSerial}
+                setWifiAddr={setWifiAddr}
+              />
             ))}
           </Stack>
         )}
