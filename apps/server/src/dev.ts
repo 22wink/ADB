@@ -9,5 +9,9 @@ dotenv.config({ path: path.join(appRoot, ".env") });
 if (process.env.ADB_MOCK === undefined) {
   process.env.ADB_MOCK = "1";
 }
+// 热更新会反复重启，默认不开浏览器（开发请用 Vite :7777）
+if (process.env.OPEN_BROWSER === undefined) {
+  process.env.OPEN_BROWSER = "0";
+}
 
 await import("./index.js");

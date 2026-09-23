@@ -196,6 +196,91 @@ export type AdbResult = {
   stderr: string;
 };
 
+/** 无线连接/配对失败原因（供前端区分提示） */
+export type ConnectFailCode =
+  | "refused"
+  | "unreachable"
+  | "timeout"
+  | "auth"
+  | "unknown";
+
+export type ConnectFailInfo = {
+  code: ConnectFailCode;
+  message: string;
+};
+
+/** 是否已成功连上（adb 失败时 exit code 仍可能为 0，需看输出） */
+export function isAdbConnectedOutput(text: string): boolean {
+  return /(?:already\s+)?connected to\s+\S+/i.test(text);
+}
+
+/** 是否配对成功 */
+export function isAdbPairedOutput(text: string): boolean {
+  return /successfully\s+paired/i.test(text);
+}
+
+/**
+ * 从 adb connect/pair 输出推断失败原因。
+ * 注意：ADB 无「未开调试」专用错误码；Connection refused 通常即端口未监听（无线调试未开）。
+ */
+export function classifyConnectFailure(text: string): ConnectFailInfo {
+  const t = text.toLowerCase();
+
+  if (
+    /connection refused|actively refused|econnrefused|拒绝连接|连接被拒绝/.test(
+      t,
+    )
+  ) {
+    return {
+      code: "refused",
+      message:
+        "连接被拒绝：目标设备可能未开启「无线调试 / 网络 ADB」，或调试端口不正确",
+    };
+  }
+
+  if (
+    /timed?\s*out|timeout|operation timed out|连接超时|等待超时/.test(t)
+  ) {
+    return {
+      code: "timeout",
+      message:
+        "连接超时：请确认设备与电脑在同一网络，且已开启无线调试",
+    };
+  }
+
+  if (
+    /no route to host|host (is )?unreachable|network is unreachable|name or service not known|could not resolve|无法访问|找不到主机|网络不可达/.test(
+      t,
+    )
+  ) {
+    return {
+      code: "unreachable",
+      message:
+        "无法访问该地址：请检查 IP 是否正确、设备是否在线且与电脑同一局域网",
+    };
+  }
+
+  if (
+    /failed to authenticate|unauthorized|not authorized|device unauthorized|需要授权|未授权/.test(
+      t,
+    )
+  ) {
+    return {
+      code: "auth",
+      message:
+        "设备未授权本机调试：请在手机上允许调试；Android 11+ 无线调试需先完成配对",
+    };
+  }
+
+  const brief = text.replace(/\s+/g, " ").trim().slice(0, 180);
+  return {
+    code: "unknown",
+    message: brief
+      ? `连接失败：${brief}`
+      : "连接失败：请确认设备已开启无线调试且地址正确",
+  };
+}
+
 export type DeviceInfo = {
   serial: string;
   state: string;
@@ -209,6 +294,7 @@ export class AdbError extends Error {
   constructor(
     message: string,
     public readonly detail?: string,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = "AdbError";

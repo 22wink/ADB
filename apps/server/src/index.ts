@@ -8,7 +8,7 @@ import rateLimit from "express-rate-limit";
 import multer from "multer";
 import dotenv from "dotenv";
 import { z } from "zod";
-import { AdbClient, AdbError, resolveAdbPath, joinRemotePath } from "@adb-studio/adb-core";
+import { AdbClient, AdbError, resolveAdbPath, joinRemotePath, isAdbConnectedOutput, isAdbPairedOutput, classifyConnectFailure } from "@adb-studio/adb-core";
 import { DeviceStore } from "./deviceStore.js";
 import { localSubnets, scanAdbPorts } from "./lanScan.js";
 import { MockAdbClient, MOCK_LAN } from "./mock/MockAdbClient.js";
@@ -135,7 +135,11 @@ function serialOf(req: express.Request): string | undefined {
 
 function sendErr(res: express.Response, err: unknown) {
   if (err instanceof AdbError) {
-    return res.status(400).json({ error: err.message, detail: err.detail });
+    return res.status(400).json({
+      error: err.message,
+      detail: err.detail,
+      code: err.code,
+    });
   }
   if (err instanceof z.ZodError) {
     return res.status(400).json({ error: "参数校验失败", detail: err.flatten() });
@@ -211,27 +215,30 @@ app.post("/api/connect", async (req, res) => {
       .object({ address: z.string().min(3).max(80) })
       .parse(req.body);
     const result = await adb.connect(address);
-    if (result.ok || /connected to/i.test(result.stdout + result.stderr)) {
-      let model: string | undefined;
-      let brand: string | undefined;
-      try {
-        const props = await adb.deviceProps(address);
-        model = props["ro.product.model"];
-        brand = props["ro.product.brand"];
-      } catch {
-        /* ignore */
-      }
-      deviceStore.upsert({
-        id: address,
-        serial: address,
-        address,
-        model,
-        brand,
-        transport: "wifi",
-        touchConnected: true,
-      });
+    const out = `${result.stdout}\n${result.stderr}`.trim();
+    if (!isAdbConnectedOutput(out)) {
+      const fail = classifyConnectFailure(out);
+      throw new AdbError(fail.message, out || undefined, fail.code);
     }
-    res.json(result);
+    let model: string | undefined;
+    let brand: string | undefined;
+    try {
+      const props = await adb.deviceProps(address);
+      model = props["ro.product.model"];
+      brand = props["ro.product.brand"];
+    } catch {
+      /* ignore */
+    }
+    deviceStore.upsert({
+      id: address,
+      serial: address,
+      address,
+      model,
+      brand,
+      transport: "wifi",
+      touchConnected: true,
+    });
+    res.json({ ...result, ok: true, code: "connected" as const });
   } catch (e) {
     sendErr(res, e);
   }
@@ -246,7 +253,18 @@ app.post("/api/pair", async (req, res) => {
       })
       .parse(req.body);
     const result = await adb.pair(address, code);
-    res.json(result);
+    const out = `${result.stdout}\n${result.stderr}`.trim();
+    if (!isAdbPairedOutput(out)) {
+      const fail = classifyConnectFailure(out);
+      const message =
+        fail.code === "refused"
+          ? "配对被拒绝：请先在手机「无线调试」里打开配对，并确认配对端口正确"
+          : fail.code === "auth" || /wrong|incorrect|invalid|失败/.test(out.toLowerCase())
+            ? "配对失败：请确认 6 位配对码正确且未过期"
+            : fail.message.replace(/^连接/, "配对");
+      throw new AdbError(message, out || undefined, fail.code);
+    }
+    res.json({ ...result, ok: true, code: "paired" as const });
   } catch (e) {
     sendErr(res, e);
   }

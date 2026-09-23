@@ -7,8 +7,20 @@ async function request<T>(
   const res = await fetch(`${API}${path}`, init);
   const ct = res.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "请求失败");
+    const data = (await res.json()) as {
+      error?: string;
+      detail?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      const err = new Error(data.error || "请求失败") as Error & {
+        detail?: string;
+        code?: string;
+      };
+      err.detail = data.detail;
+      err.code = data.code;
+      throw err;
+    }
     return data as T;
   }
   const text = await res.text();
