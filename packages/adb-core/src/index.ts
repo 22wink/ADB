@@ -281,6 +281,27 @@ export function classifyConnectFailure(text: string): ConnectFailInfo {
   };
 }
 
+/** 小米/部分 OEM user 版禁止 shell 注入输入 */
+export function isInjectEventsDenied(text: string): boolean {
+  return /INJECT_EVENTS|Injecting input events requires/i.test(text);
+}
+
+const INJECT_EVENTS_HINT =
+  "设备禁止模拟按键/输入（缺少 INJECT_EVENTS）。小米/红米请打开：设置 → 更多设置 → 开发者选项 →「USB调试（安全设置）」；开启后重连设备再试。";
+
+function assertInputAllowed(r: AdbResult, fallbackMsg: string): void {
+  const out = `${r.stdout}\n${r.stderr}`.trim();
+  if (isInjectEventsDenied(out)) {
+    throw new AdbError(INJECT_EVENTS_HINT, out || undefined, "inject_denied");
+  }
+  if (!r.ok) {
+    throw new AdbError(
+      out ? `${fallbackMsg}：${out.slice(0, 180)}` : fallbackMsg,
+      out || undefined,
+    );
+  }
+}
+
 export type DeviceInfo = {
   serial: string;
   state: string;
@@ -304,7 +325,11 @@ export class AdbError extends Error {
 /**
  * 解析 pm list packages -f -i --show-versioncode 行
  * 例: package:/data/app/.../base.apk=com.foo installer=com.android.vending versionCode:100
+ * 例: package:/data/app/com.foo-xxx==/base.apk=com.foo versionCode:1  installer=null
  * 或: package:com.foo
+ *
+ * 注意：路径里常有 Base64 的 `==`，且行尾有 `installer=`，
+ * 不能用 indexOf/lastIndexOf("=") 分割，必须按 `.apk=` 定位。
  */
 function parsePmListLine(line: string): PackageInfo | null {
   const trimmed = line.trim();
@@ -312,16 +337,15 @@ function parsePmListLine(line: string): PackageInfo | null {
 
   let rest = trimmed.slice("package:".length);
   let apkPath: string | undefined;
-  let packageName = "";
 
-  const eq = rest.lastIndexOf("=");
-  if (eq > 0 && rest.includes("/")) {
-    apkPath = rest.slice(0, eq);
-    rest = rest.slice(eq + 1);
+  const apkEq = rest.search(/\.apk=/i);
+  if (apkEq >= 0) {
+    apkPath = rest.slice(0, apkEq + 4);
+    rest = rest.slice(apkEq + 5);
   }
 
-  const tokens = rest.split(/\s+/);
-  packageName = tokens[0] ?? "";
+  const tokens = rest.split(/\s+/).filter(Boolean);
+  const packageName = tokens[0] ?? "";
   if (!PACKAGE_RE.test(packageName)) return null;
 
   const info: PackageInfo = { packageName, apkPath };
@@ -889,7 +913,11 @@ export class AdbClient {
     if (text.length > 200) throw new AdbError("输入文本过长");
     // adb shell input text 对空格用 %s
     const encoded = text.replace(/ /g, "%s").replace(/['"`$\\]/g, "");
-    return this.run(this.withSerial(serial, ["shell", "input", "text", encoded]));
+    const r = await this.run(
+      this.withSerial(serial, ["shell", "input", "text", encoded]),
+    );
+    assertInputAllowed(r, "文本输入失败");
+    return r;
   }
 
   async inputKey(
@@ -907,7 +935,39 @@ export class AdbClient {
       "KEYCODE_DEL",
     ]);
     if (!allowed.has(keycode)) throw new AdbError("不支持的按键");
-    return this.run(this.withSerial(serial, ["shell", "input", "keyevent", keycode]));
+
+    const r = await this.run(
+      this.withSerial(serial, ["shell", "input", "keyevent", keycode]),
+    );
+    const out = `${r.stdout}\n${r.stderr}`;
+    if (r.ok && !isInjectEventsDenied(out)) return r;
+
+    // 小米等 user 版禁止 inject：HOME 可用 Intent 回退
+    if (isInjectEventsDenied(out) && keycode === "KEYCODE_HOME") {
+      const home = await this.run(
+        this.withSerial(serial, [
+          "shell",
+          "am",
+          "start",
+          "-a",
+          "android.intent.action.MAIN",
+          "-c",
+          "android.intent.category.HOME",
+        ]),
+      );
+      const homeOut = `${home.stdout}\n${home.stderr}`;
+      if (home.ok || /Starting:\s*Intent/i.test(homeOut)) {
+        return {
+          ok: true,
+          code: home.code,
+          stdout: home.stdout || "HOME via am start",
+          stderr: home.stderr,
+        };
+      }
+    }
+
+    assertInputAllowed(r, "按键发送失败");
+    return r;
   }
 
   /** 当前 adb 可执行路径（供 scrcpy 等长驻会话复用） */
