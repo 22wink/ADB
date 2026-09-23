@@ -81,7 +81,10 @@ pnpm build
 pnpm start
 ```
 
-开发热更新：`pnpm dev`  
+开发热更新：`pnpm dev`（默认 Mock）  
+- `.env` 设 `ADB_MOCK=0` → 真实 ADB  
+- `pnpm dev:real` → 全栈强制真实设备（覆盖 `.env`）  
+- `pnpm dev:server:real` → 仅 server 强制真实设备  
 设置 `OPEN_BROWSER=0` 可禁止启动时自动开浏览器。
 
 ## 功能

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/dev.ts",
-    "dev:real": "tsx watch src/index.ts",
+    "dev:real": "tsx watch src/dev-real.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },

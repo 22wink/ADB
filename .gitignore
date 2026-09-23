@@ -19,3 +19,4 @@ apps/server/data-mock/
 screenshots/
 uploads/
 .vite/
+data-mock/

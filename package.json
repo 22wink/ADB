@@ -4,9 +4,10 @@
   "version": "1.0.0",
   "description": "ADB 可视化操作工具（本机安全代理）",
   "scripts": {
-    "dev": "pnpm --parallel --filter @adb-studio/server --filter @adb-studio/web dev",
-    "dev:server": "pnpm --filter @adb-studio/server dev",
-    "dev:server:real": "pnpm --filter @adb-studio/server dev:real",
+    "dev": "node scripts/dev.mjs",
+    "dev:real": "node scripts/dev.mjs --real",
+    "dev:server": "pnpm --filter @adb-studio/adb-core build && pnpm --filter @adb-studio/server dev",
+    "dev:server:real": "pnpm --filter @adb-studio/adb-core build && pnpm --filter @adb-studio/server dev:real",
     "dev:web": "pnpm --filter @adb-studio/web dev",
     "build": "node scripts/build.mjs",
     "fetch:adb": "node scripts/fetch-platform-tools.mjs",

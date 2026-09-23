@@ -33,7 +33,7 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3789);
 const RATE = Number(process.env.RATE_LIMIT_PER_MIN ?? 120);
 
-/** 仅开发模式：`pnpm dev` → src/dev.ts 设置 ADB_MOCK=1；生产 start/release 永不启用 */
+/** 仅开发：ADB_MOCK=1 启用（dev 默认开；.env 可改；dev:real 强制关）；生产不启用 */
 const MOCK =
   process.env.ADB_MOCK === "1" && process.env.NODE_ENV !== "production";
 
